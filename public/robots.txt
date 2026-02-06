@@ -1,0 +1,15 @@
+# robots.txt for SubTrackr
+
+User-agent: *
+
+# Allow public pages
+Allow: /
+
+# Disallow authenticated pages and user data
+Disallow: /dashboard
+Disallow: /login
+Disallow: /register
+Disallow: /api/
+
+# Sitemap
+Sitemap: https://mrcn.cloud/sitemap.xml

@@ -1,0 +1,29 @@
+node_modules
+dist
+.git
+.gitignore
+.env
+.env.local
+.env.*.local
+.claude
+.vscode
+
+# Documentation
+*.md
+docs/
+
+# Stale artifacts
+srccomponents
+srccontext
+srcdata
+srchooks
+srclib
+srcpages
+srcservices
+nul
+
+# Database
+sql/
+
+# n8n exports
+n8n/

@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  subtrackr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+        VITE_N8N_WEBHOOK_URL: ${VITE_N8N_WEBHOOK_URL}
+        VITE_N8N_API_KEY: ${VITE_N8N_API_KEY}
+    container_name: subtrackr
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    # -----------------------------------------------------------
+    # Option A: If using Traefik as reverse proxy (like n8n),
+    # comment out 'ports' above and uncomment the labels below:
+    # -----------------------------------------------------------
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.subtrackr.rule=Host(`mrcn.cloud`)"
+    #   - "traefik.http.routers.subtrackr.entrypoints=websecure"
+    #   - "traefik.http.routers.subtrackr.tls.certresolver=letsencrypt"
+    #   - "traefik.http.services.subtrackr.loadbalancer.server.port=80"
+    # networks:
+    #   - proxy
+
+# Uncomment if using Traefik:
+# networks:
+#   proxy:
+#     external: true

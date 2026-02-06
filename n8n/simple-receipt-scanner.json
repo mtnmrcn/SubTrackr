@@ -1,0 +1,236 @@
+{
+  "name": "SubTrackr - Simple Receipt Scanner",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "subtrackr/receipt",
+        "options": {
+          "responseMode": "responseNode"
+        }
+      },
+      "id": "1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "subtrackr-receipt"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://ozmmsuemrrzawasbqcdd.supabase.co/storage/v1/object/receipts/{{ $json.file_path }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "DEIN_SERVICE_ROLE_KEY_HIER"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer DEIN_SERVICE_ROLE_KEY_HIER"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "2",
+      "name": "Download Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Du bist ein Experte für das Analysieren von Rechnungen. Analysiere dieses Bild einer Rechnung und extrahiere die Daten als JSON.\n\nGib NUR dieses JSON zurück, keine Erklärungen:\n{\n  \"name\": \"Name des Anbieters/Dienstleisters\",\n  \"price\": 12.99,\n  \"currency\": \"EUR\",\n  \"billing_cycle\": \"monthly\",\n  \"next_payment_date\": \"2024-02-15\",\n  \"category\": \"Entertainment\",\n  \"confidence\": 0.9\n}\n\nRegeln:\n- name: Firmenname des Anbieters\n- price: Nur die Zahl, ohne Währungssymbol\n- currency: EUR, USD, GBP oder CHF\n- billing_cycle: monthly, quarterly, yearly oder one_time\n- next_payment_date: Rechnungsdatum im Format YYYY-MM-DD\n- category: Entertainment, AI, Hosting, Development, Design, Productivity, Cloud Storage, Security oder Other\n- confidence: Deine Sicherheit von 0.0 bis 1.0\n\nWenn etwas nicht erkennbar ist, setze null."
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 500,
+          "temperature": 0.1
+        }
+      },
+      "id": "3",
+      "name": "OpenAI Vision",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [600, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "DEINE_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the OpenAI response\nconst webhookData = $('Webhook').first().json;\nconst openAiResponse = $input.first().json;\n\nlet parsed = {\n  name: null,\n  price: null,\n  currency: 'EUR',\n  billing_cycle: 'monthly',\n  next_payment_date: null,\n  category: 'Other',\n  confidence: 0.5\n};\n\ntry {\n  // Get the message content\n  const content = openAiResponse.message?.content || \n                  openAiResponse.choices?.[0]?.message?.content || \n                  openAiResponse.text || '';\n  \n  // Find JSON in the response\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    parsed = JSON.parse(jsonMatch[0]);\n  }\n} catch (e) {\n  console.log('Parse error:', e.message);\n}\n\nreturn {\n  json: {\n    pending_id: webhookData.pending_id,\n    file_path: webhookData.file_path,\n    filename: webhookData.filename,\n    parsed: parsed\n  }\n};"
+      },
+      "id": "4",
+      "name": "Parse Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://ozmmsuemrrzawasbqcdd.supabase.co/rest/v1/pending_subscriptions?id=eq.{{ $json.pending_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "DEIN_SERVICE_ROLE_KEY_HIER"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer DEIN_SERVICE_ROLE_KEY_HIER"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"parsed_name\": {{ JSON.stringify($json.parsed.name) }},\n  \"parsed_price\": {{ $json.parsed.price || 'null' }},\n  \"parsed_currency\": {{ JSON.stringify($json.parsed.currency || 'EUR') }},\n  \"parsed_billing_cycle\": {{ JSON.stringify($json.parsed.billing_cycle || 'monthly') }},\n  \"parsed_next_payment\": {{ JSON.stringify($json.parsed.next_payment_date) }},\n  \"parsed_category\": {{ JSON.stringify($json.parsed.category || 'Other') }},\n  \"confidence_score\": {{ $json.parsed.confidence || 0.5 }},\n  \"status\": \"pending\",\n  \"processed_at\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {}
+      },
+      "id": "5",
+      "name": "Update Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "=https://ozmmsuemrrzawasbqcdd.supabase.co/storage/v1/object/receipts/{{ $json.file_path }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "DEIN_SERVICE_ROLE_KEY_HIER"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer DEIN_SERVICE_ROLE_KEY_HIER"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6",
+      "name": "Delete Temp File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, pending_id: $json.pending_id }) }}"
+      },
+      "id": "7",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1400, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Download Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Image": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Vision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Vision": {
+      "main": [
+        [
+          {
+            "node": "Parse Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Response": {
+      "main": [
+        [
+          {
+            "node": "Update Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Supabase": {
+      "main": [
+        [
+          {
+            "node": "Delete Temp File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Temp File": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

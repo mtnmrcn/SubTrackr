@@ -1,0 +1,373 @@
+{
+  "name": "SubTrackr - Receipt Scanner",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "subtrackr/receipt",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "subtrackr-receipt"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/storage/v1/object/receipts/{{ $json.file_path }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-file",
+      "name": "Download from Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "operation": "textDetection",
+        "additionalOptions": {}
+      },
+      "id": "google-vision",
+      "name": "Google Cloud Vision",
+      "type": "n8n-nodes-base.googleCloudVision",
+      "typeVersion": 1,
+      "position": [690, 300],
+      "credentials": {
+        "googleCloudVisionApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Cloud Vision"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-3.5-turbo",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Du bist ein Experte für das Analysieren von Rechnungen und Zahlungsbelegen.\nExtrahiere folgende Informationen aus dem Text und gib sie als JSON zurück:\n\n{\n  \"name\": \"Name des Dienstleisters/Anbieters\",\n  \"price\": 12.99,\n  \"currency\": \"EUR\",\n  \"billing_cycle\": \"monthly|quarterly|yearly|one_time\",\n  \"next_payment_date\": \"2024-02-15\",\n  \"category\": \"Entertainment|AI|Hosting|Development|Design|Productivity|Cloud Storage|Security|Other\",\n  \"confidence\": 0.95\n}\n\nRegeln:\n- Wenn Informationen nicht gefunden werden, setze null\n- Preise immer als Dezimalzahl ohne Währungssymbol\n- Datum im Format YYYY-MM-DD\n- Confidence ist deine Einschätzung wie sicher du dir bist (0.0-1.0)\n- Bei wiederkehrenden Abos: next_payment_date = nächstes Fälligkeitsdatum\n- Bei einmaligen: next_payment_date = Rechnungsdatum\n- Gib NUR das JSON zurück, keine zusätzlichen Erklärungen"
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.text }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 500
+        }
+      },
+      "id": "openai-gpt",
+      "name": "OpenAI GPT",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [910, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse GPT response\nconst gptResponse = $input.first().json;\nconst webhookData = $('Webhook').first().json;\n\nlet parsedData;\ntry {\n  // Extract JSON from GPT response\n  const content = gptResponse.message?.content || gptResponse.choices?.[0]?.message?.content || '';\n  \n  // Try to find JSON in the response\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    parsedData = JSON.parse(jsonMatch[0]);\n  } else {\n    parsedData = JSON.parse(content);\n  }\n} catch (e) {\n  parsedData = {\n    name: null,\n    price: null,\n    currency: 'EUR',\n    billing_cycle: 'monthly',\n    next_payment_date: null,\n    category: 'Other',\n    confidence: 0.3\n  };\n}\n\nreturn {\n  json: {\n    ...webhookData,\n    ocr_text: $('Google Cloud Vision').first().json.text || '',\n    parsed: parsedData\n  }\n};"
+      },
+      "id": "parse-response",
+      "name": "Parse GPT Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "folderId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_FOLDER_ID",
+          "mode": "id"
+        },
+        "name": "={{ $json.filename }}",
+        "options": {}
+      },
+      "id": "google-drive-upload",
+      "name": "Google Drive Upload",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1350, 200],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/pending_subscriptions?id=eq.{{ $json.pending_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"raw_ocr_text\": {{ JSON.stringify($json.ocr_text) }},\n  \"parsed_name\": {{ JSON.stringify($json.parsed.name) }},\n  \"parsed_price\": {{ $json.parsed.price || 'null' }},\n  \"parsed_currency\": {{ JSON.stringify($json.parsed.currency || 'EUR') }},\n  \"parsed_billing_cycle\": {{ JSON.stringify($json.parsed.billing_cycle) }},\n  \"parsed_next_payment\": {{ JSON.stringify($json.parsed.next_payment_date) }},\n  \"parsed_category\": {{ JSON.stringify($json.parsed.category || 'Other') }},\n  \"confidence_score\": {{ $json.parsed.confidence || 0.5 }},\n  \"google_drive_url\": {{ JSON.stringify($('Google Drive Upload').first().json.webViewLink || null) }},\n  \"google_drive_file_id\": {{ JSON.stringify($('Google Drive Upload').first().json.id || null) }},\n  \"status\": \"pending\",\n  \"processed_at\": \"{{ $now.toISO() }}\"\n}",
+        "options": {}
+      },
+      "id": "update-supabase",
+      "name": "Update Pending Subscription",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1570, 300]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $env.SUPABASE_URL }}/storage/v1/object/receipts/{{ $json.file_path }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "delete-temp-file",
+      "name": "Delete Temp File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1790, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, pending_id: $json.pending_id }) }}",
+        "options": {}
+      },
+      "id": "respond-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2010, 300]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/pending_subscriptions?id=eq.{{ $('Webhook').first().json.pending_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"status\": \"error\",\n  \"error_message\": {{ JSON.stringify($json.error?.message || 'Unknown error') }}\n}",
+        "options": {}
+      },
+      "id": "error-update",
+      "name": "Update Error Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1570, 500]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: $json.error?.message || 'Processing failed' }) }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "respond-error",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1790, 500]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Download from Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download from Supabase": {
+      "main": [
+        [
+          {
+            "node": "Google Cloud Vision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Cloud Vision": {
+      "main": [
+        [
+          {
+            "node": "OpenAI GPT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI GPT": {
+      "main": [
+        [
+          {
+            "node": "Parse GPT Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse GPT Response": {
+      "main": [
+        [
+          {
+            "node": "Google Drive Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive Upload": {
+      "main": [
+        [
+          {
+            "node": "Update Pending Subscription",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Pending Subscription": {
+      "main": [
+        [
+          {
+            "node": "Delete Temp File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Temp File": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Error Status": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "SubTrackr"
+    },
+    {
+      "name": "Receipt Scanner"
+    }
+  ],
+  "triggerCount": 1,
+  "pinData": {}
+}

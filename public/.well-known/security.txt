@@ -1,0 +1,8 @@
+Contact: security@mrcn.cloud
+Expires: 2026-12-31T23:59:59.000Z
+Preferred-Languages: de, en
+Canonical: https://mrcn.cloud/.well-known/security.txt
+
+# Security Policy
+# Please report security vulnerabilities to security@mrcn.cloud
+# We aim to respond within 48 hours.

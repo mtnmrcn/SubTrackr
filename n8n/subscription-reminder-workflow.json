@@ -1,0 +1,236 @@
+{
+  "name": "SubTrackr - Abo-Erinnerungen",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Täglich um 8 Uhr",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  s.id,\n  s.name,\n  s.price,\n  s.currency,\n  s.next_payment_date,\n  s.reminder_days,\n  s.last_reminder_sent,\n  u.email as user_email,\n  u.id as user_id,\n  (s.next_payment_date - CURRENT_DATE) as days_until_payment\nFROM subscriptions s\nJOIN auth.users u ON s.user_id = u.id\nWHERE \n  s.is_active = true\n  AND (s.next_payment_date - s.reminder_days) <= CURRENT_DATE\n  AND (s.next_payment_date - s.reminder_days) >= CURRENT_DATE\n  AND (s.last_reminder_sent IS NULL OR s.last_reminder_sent < (s.next_payment_date - s.reminder_days))\nORDER BY s.next_payment_date ASC;",
+        "options": {}
+      },
+      "id": "supabase-query",
+      "name": "Supabase: Hole fällige Abos",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-postgres-credentials",
+          "name": "Supabase PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-node",
+      "name": "Abos vorhanden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {},
+      "id": "no-data-stop",
+      "name": "Stop",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [850, 450]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-in-batches",
+      "name": "Loop über Abos",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [850, 150]
+    },
+    {
+      "parameters": {
+        "fromEmail": "noreply@subtrackr.app",
+        "toEmail": "={{ $json.user_email }}",
+        "subject": "⏰ Erinnerung: {{ $json.name }} wird in {{ $json.days_until_payment }} Tagen abgerechnet",
+        "emailType": "html",
+        "message": "<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"utf-8\">\n  <style>\n    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }\n    .header { background: linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center; }\n    .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }\n    .subscription-box { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #8B5CF6; }\n    .amount { font-size: 24px; font-weight: bold; color: #8B5CF6; margin: 10px 0; }\n    .button { display: inline-block; background: #8B5CF6; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; margin: 20px 0; }\n    .footer { text-align: center; color: #666; font-size: 12px; margin-top: 20px; }\n  </style>\n</head>\n<body>\n  <div class=\"header\">\n    <h1>🔔 Zahlungserinnerung</h1>\n  </div>\n  <div class=\"content\">\n    <p>Hallo,</p>\n    <p>dein Abonnement wird bald abgerechnet:</p>\n    \n    <div class=\"subscription-box\">\n      <h2 style=\"margin-top: 0;\">{{ $json.name }}</h2>\n      <p><strong>Zahlung fällig am:</strong> {{ $json.next_payment_date }}</p>\n      <p><strong>Noch {{ $json.days_until_payment }} Tag(e)</strong></p>\n      <div class=\"amount\">{{ $json.price }} {{ $json.currency }}</div>\n    </div>\n    \n    <p>Möchtest du kündigen oder Details ändern?</p>\n    <a href=\"https://subtrackr.app/dashboard\" class=\"button\">→ SubTrackr öffnen</a>\n    \n    <p style=\"margin-top: 30px; font-size: 14px; color: #666;\">\n      <em>Tipp: Du kannst die Erinnerungszeit in den Abo-Einstellungen anpassen.</em>\n    </p>\n  </div>\n  <div class=\"footer\">\n    <p>Diese E-Mail wurde automatisch von SubTrackr gesendet.<br>\n    Du erhältst diese E-Mail, weil du Erinnerungen für deine Abonnements aktiviert hast.</p>\n  </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-email",
+      "name": "E-Mail senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1050, 150],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "SMTP Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE subscriptions\nSET last_reminder_sent = CURRENT_DATE\nWHERE id = '{{ $json.id }}';",
+        "options": {}
+      },
+      "id": "update-reminder-sent",
+      "name": "Markiere als gesendet",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1250, 150],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-postgres-credentials",
+          "name": "Supabase PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "loop-back",
+      "name": "Zurück zu Loop",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1450, 150]
+    }
+  ],
+  "connections": {
+    "Täglich um 8 Uhr": {
+      "main": [
+        [
+          {
+            "node": "Supabase: Hole fällige Abos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase: Hole fällige Abos": {
+      "main": [
+        [
+          {
+            "node": "Abos vorhanden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abos vorhanden?": {
+      "main": [
+        [
+          {
+            "node": "Loop über Abos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop über Abos": {
+      "main": [
+        [
+          {
+            "node": "E-Mail senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E-Mail senden": {
+      "main": [
+        [
+          {
+            "node": "Markiere als gesendet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Markiere als gesendet": {
+      "main": [
+        [
+          {
+            "node": "Zurück zu Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zurück zu Loop": {
+      "main": [
+        [
+          {
+            "node": "Loop über Abos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z",
+      "id": "1",
+      "name": "SubTrackr"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2025-01-01T00:00:00.000Z",
+  "versionId": "1"
+}
