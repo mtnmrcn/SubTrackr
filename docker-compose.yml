@@ -10,22 +10,16 @@ services:
         VITE_N8N_API_KEY: ${VITE_N8N_API_KEY}
     container_name: subtrackr
     restart: unless-stopped
-    ports:
-      - "3000:80"
-    # -----------------------------------------------------------
-    # Option A: If using Traefik as reverse proxy (like n8n),
-    # comment out 'ports' above and uncomment the labels below:
-    # -----------------------------------------------------------
-    # labels:
-    #   - "traefik.enable=true"
-    #   - "traefik.http.routers.subtrackr.rule=Host(`mrcn.cloud`)"
-    #   - "traefik.http.routers.subtrackr.entrypoints=websecure"
-    #   - "traefik.http.routers.subtrackr.tls.certresolver=letsencrypt"
-    #   - "traefik.http.services.subtrackr.loadbalancer.server.port=80"
-    # networks:
-    #   - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.subtrackr.rule=Host(`mrcn.cloud`) || Host(`www.mrcn.cloud`)"
+      - "traefik.http.routers.subtrackr.entrypoints=websecure"
+      - "traefik.http.routers.subtrackr.tls=true"
+      - "traefik.http.routers.subtrackr.tls.certresolver=mytlschallenge"
+      - "traefik.http.services.subtrackr.loadbalancer.server.port=80"
+    networks:
+      - root_default
 
-# Uncomment if using Traefik:
-# networks:
-#   proxy:
-#     external: true
+networks:
+  root_default:
+    external: true
